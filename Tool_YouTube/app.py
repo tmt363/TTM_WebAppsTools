@@ -1,4 +1,3 @@
-%%writefile "/content/drive/MyDrive/Colab Notebooks/Tool_YouTube/app.py"
 import math
 import streamlit as st
 
