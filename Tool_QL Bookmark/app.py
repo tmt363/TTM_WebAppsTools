@@ -5,7 +5,7 @@ import datetime
 # 1. CẤU HÌNH TRANG WEB TOÀN MÀN HÌNH
 # ------------------------------------------
 st.set_page_config(
-    page_title="Tool_QL Bookmark",
+    page_title="Tool_001_QL Bookmark",
     page_icon="🔖",
     layout="wide"
 )
