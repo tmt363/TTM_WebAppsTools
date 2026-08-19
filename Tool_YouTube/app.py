@@ -3,7 +3,7 @@ from yt_dlp import YoutubeDL
 import pandas as pd
 import io
 
-st.set_page_config(page_title="Tạo Danh Sách Phát YouTube", page_icon="🎬", layout="wide")
+st.set_page_config(page_title="Tool_002_Tạo Danh Sách Phát YouTube", page_icon="🎬", layout="wide")
 
 st.title("🎬 Công Cụ Tạo & Tải Danh Sách Phát YouTube")
 st.write("Dán link video hoặc danh sách phát YouTube vào bên dưới để tự động lấy dữ liệu.")
