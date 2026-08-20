@@ -1,31 +1,44 @@
 import streamlit as st
 
-# 1. CẤU HÌNH TRANG WEB
 st.set_page_config(
-    page_title="Tool_002_YouTube - Công cụ YouTube",
+    page_title="Tool YouTube - Quản lý & Xem Video",
     page_icon="▶️",
     layout="wide"
 )
 
-st.title("▶️ Tool 002 - Quản lý & Xem YouTube")
+st.title("▶️ Quản Lý & Xem Video YouTube Công Việc")
 
-# 2. BỘ XEM VÀ PHÂN TÍCH VIDEO YOUTUBE
-yt_url = st.text_input("Nhập link Video YouTube (ví dụ: https://www.youtube.com/watch?v=...):")
+if "yt_list" not in st.session_state:
+    st.session_state.yt_list = []
 
-if yt_url:
-    try:
-        st.video(yt_url)
-        st.success("Tải video thành công!")
-    except Exception as e:
-        st.error("Link video không hợp lệ, vui lòng kiểm tra lại!")
+# Sidebar thêm Video
+with st.sidebar:
+    st.header("➕ Thêm Video Mới")
+    v_title = st.text_input("Tiêu đề Video")
+    v_url = st.text_input("Link YouTube")
+    if st.button("Lưu Video", type="primary", use_container_width=True):
+        if v_title and v_url:
+            st.session_state.yt_list.append({"title": v_title, "url": v_url, "notes": ""})
+            st.toast("Đã thêm video!", icon="🎬")
+            st.rerun()
 
-st.divider()
+# Giao diện chính
+col_left, col_right = st.columns([2, 1])
 
-# 3. GHI CHÚ NHANH KHI XEM VIDEO
-st.subheader("📝 Ghi chú nội dung Video")
-note = st.text_area("Nhập nội dung ghi chú:", height=150)
-if st.button("Lưu Ghi Chú"):
-    if note:
-        st.toast("Đã lưu ghi chú thành công!", icon="✅")
+with col_left:
+    st.subheader("📺 Trình Phát Video")
+    yt_input = st.text_input("Hoặc dán trực tiếp link YouTube vào đây để xem ngay:")
+    if yt_input:
+        st.video(yt_input)
+    elif st.session_state.yt_list:
+        selected_vid = st.selectbox("Chọn video trong danh sách đã lưu:", [v["title"] for v in st.session_state.yt_list])
+        curr = next(v for v in st.session_state.yt_list if v["title"] == selected_vid)
+        st.video(curr["url"])
     else:
-        st.warning("Vui lòng nhập nội dung ghi chú!")
+        st.info("Nhập link YouTube ở trên để xem video.")
+
+with col_right:
+    st.subheader("📝 Ghi Chú Trực Tiếp")
+    note = st.text_area("Viết ghi chú quan trọng từ video...", height=250)
+    if st.button("Lưu Ghi Chú"):
+        st.toast("Đã lưu ghi chú thành công!", icon="✅")
