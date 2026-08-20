@@ -2,14 +2,14 @@ import streamlit as st
 import datetime
 import json
 import pandas as pd
-import re
-from urllib.parse import parse_qs, urlparse
+import io
+import yt_dlp
 
 # ------------------------------------------
 # 1. CẤU HÌNH TRANG WEB TOÀN MÀN HÌNH
 # ------------------------------------------
 st.set_page_config(
-    page_title="Tool_YouTube Playlist Extractor",
+    page_title="Tool002 - YouTube Playlist Extractor",
     page_icon="▶️",
     layout="wide"
 )
@@ -20,268 +20,186 @@ st.set_page_config(
 if "yt_playlists" not in st.session_state:
     st.session_state.yt_playlists = []
 
-if "edit_header_idx" not in st.session_state:
-    st.session_state.edit_header_idx = None
-
 if "edit_note_key" not in st.session_state:
     st.session_state.edit_note_key = None
 
 if "add_note_idx" not in st.session_state:
     st.session_state.add_note_idx = None
 
-# Tiêu đề ứng dụng
-st.title("▶️ Tool_YouTube - Trích Xuất & Quản Lý Playlist")
-st.caption("Dán link Playlist YouTube để lấy tự động toàn bộ danh sách video, quản lý ghi chú và xuất file Excel.")
+st.title("▶️ Tool 002 - Trích Xuất Playlist YouTube")
+st.caption("Ứng dụng tự động lấy toàn bộ danh sách Video từ Link Playlist YouTube & Quản lý ghi chú.")
 
 # ------------------------------------------
-# 3. BỘ TRÍCH XUẤT PLAYLIST YOUTUBE
+# 3. HÀM CÀO DỮ LIỆU PLAYLIST BẰNG YT-DLP
 # ------------------------------------------
-with st.expander("➕ **Trích Xuất Playlist YouTube Mới (Bấm để mở/đóng)**", expanded=True):
-    with st.form("extract_playlist_form", clear_on_submit=True):
+def extract_youtube_playlist(playlist_url):
+    ydl_opts = {
+        'extract_flat': True,  # Lấy thông tin nhanh không cần tải video
+        'skip_download': True,
+        'quiet': True
+    }
+    videos = []
+    playlist_title = "YouTube Playlist"
+    
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(playlist_url, download=False)
+        if 'title' in info:
+            playlist_title = info['title']
+            
+        if 'entries' in info:
+            for idx, entry in enumerate(info['entries']):
+                if entry:
+                    v_id = entry.get('id', '')
+                    v_title = entry.get('title', f'Video #{idx+1}')
+                    v_url = entry.get('url') or f"https://www.youtube.com/watch?v={v_id}"
+                    duration_sec = entry.get('duration', 0)
+                    uploader = entry.get('uploader', 'N/A')
+                    
+                    # Quy đổi giây sang phút:giây
+                    mins, secs = divmod(duration_sec or 0, 60)
+                    time_str = f"{int(mins)}p {int(secs)}s" if duration_sec else "N/A"
+                    
+                    videos.append({
+                        "stt": idx + 1,
+                        "title": v_title,
+                        "url": v_url,
+                        "duration": time_str,
+                        "uploader": uploader
+                    })
+    return playlist_title, videos
+
+# ------------------------------------------
+# 4. KHUNG TRÍCH XUẤT PLAYLIST
+# ------------------------------------------
+with st.expander("🚀 **Trích Xuất Playlist Mới (Bấm để mở)**", expanded=True):
+    with st.form("extract_form", clear_on_submit=True):
         col1, col2 = st.columns([1, 2])
-        
         with col1:
-            cat_input = st.selectbox(
-                "Danh mục phân loại:",
-                ["Học tập", "Công việc", "Giải trí", "Âm nhạc", "Khác"]
-            )
-            playlist_title_input = st.text_input("Tên Playlist (Tùy chỉnh):", placeholder="Ví dụ: Khóa học Python Web")
-            
+            cat_input = st.selectbox("Danh mục phân loại:", ["Học tập", "Công việc", "Giải trí", "Âm nhạc", "Khác"])
+            custom_title = st.text_input("Tên tùy chỉnh (Để trống sẽ lấy tên gốc):")
         with col2:
-            playlist_url_input = st.text_input("Đường dẫn Link Playlist YouTube:", placeholder="https://www.youtube.com/playlist?list=PL...")
-            raw_urls_input = st.text_area("Hoặc dán danh sách nhiều Link Video (mỗi dòng 1 link):", height=100, placeholder="https://www.youtube.com/watch?v=...\nhttps://www.youtube.com/watch?v=...")
-
-        btn_extract = st.form_submit_button("🚀 Trích Xuất & Lưu Danh Sách", type="primary", use_container_width=True)
-
-        if btn_extract:
-            extracted_videos = []
+            url_input = st.text_input("Dán Link Playlist YouTube vào đây:", placeholder="https://www.youtube.com/playlist?list=PL...")
             
-            # Xử lý trích xuất từ link
-            if playlist_url_input.strip():
-                # Lấy danh sách link từ ô nhập
-                lines = [line.strip() for line in raw_urls_input.split("\n") if line.strip()]
-                if not lines:
-                    lines = [playlist_url_input.strip()]
-                
-                for idx, u in enumerate(lines):
-                    extracted_videos.append({
-                        "stt": idx + 1,
-                        "title": f"Video #{idx + 1}",
-                        "url": u
-                    })
-            elif raw_urls_input.strip():
-                lines = [line.strip() for line in raw_urls_input.split("\n") if line.strip()]
-                for idx, u in enumerate(lines):
-                    extracted_videos.append({
-                        "stt": idx + 1,
-                        "title": f"Video #{idx + 1}",
-                        "url": u
-                    })
-
-            if not extracted_videos:
-                st.error("⚠️ Vui lòng dán Link Playlist hoặc danh sách Link Video!")
+        btn_submit = st.form_submit_button("⚡ Trích Xuất Ngay", type="primary", use_container_width=True)
+        
+        if btn_submit:
+            if not url_input.strip():
+                st.error("⚠️ Vui lòng dán đường dẫn Playlist YouTube!")
             else:
-                p_name = playlist_title_input.strip() if playlist_title_input.strip() else f"Playlist {len(st.session_state.yt_playlists) + 1}"
-                now_str = str(datetime.date.today())
-                
-                new_playlist_item = {
-                    "category": cat_input,
-                    "title": p_name,
-                    "url": playlist_url_input.strip(),
-                    "videos": extracted_videos,
-                    "notes": [],
-                    "date": now_str
-                }
-                st.session_state.yt_playlists.append(new_playlist_item)
-                st.success(f"✅ Đã trích xuất thành công {len(extracted_videos)} video vào '{p_name}'!")
-                st.rerun()
-
-st.write("")
-
-# ------------------------------------------
-# 4. TÌM KIẾM & LỌC PLAYLIST
-# ------------------------------------------
-col_search, col_filter, col_total = st.columns([2.5, 1.5, 1])
-
-with col_search:
-    search_keyword = st.text_input("🔍 Tìm kiếm Playlist/Ghi chú:", placeholder="Nhập từ khóa...")
-
-with col_filter:
-    filter_category = st.selectbox(
-        "📁 Lọc theo danh mục:",
-        ["Tất cả", "Học tập", "Công việc", "Giải trí", "Âm nhạc", "Khác"]
-    )
-
-filtered_list = st.session_state.yt_playlists
-
-if filter_category != "Tất cả":
-    filtered_list = [b for b in filtered_list if b["category"] == filter_category]
-
-if search_keyword.strip():
-    kw = search_keyword.lower()
-    filtered_list = [
-        b for b in filtered_list 
-        if kw in b["title"].lower() 
-        or kw in b["category"].lower()
-        or any(kw in n["text"].lower() for n in b.get("notes", []))
-    ]
-
-with col_total:
-    st.write("")
-    st.write("")
-    st.metric("Tổng số:", f"{len(filtered_list)} playlist")
+                with st.spinner("⏳ Đang cào dữ liệu từ YouTube, vui lòng đợi vài giây..."):
+                    try:
+                        pl_title, v_list = extract_youtube_playlist(url_input.strip())
+                        final_title = custom_title.strip() if custom_title.strip() else pl_title
+                        
+                        if v_list:
+                            new_pl = {
+                                "category": cat_input,
+                                "title": final_title,
+                                "url": url_input.strip(),
+                                "videos": v_list,
+                                "notes": [],
+                                "date": str(datetime.date.today())
+                            }
+                            st.session_state.yt_playlists.append(new_pl)
+                            st.success(f"🎉 Đã lấy thành công {len(v_list)} video từ '{final_title}'!")
+                            st.rerun()
+                        else:
+                            st.warning("⚠️ Không tìm thấy video nào trong Playlist này. Hãy kiểm tra lại link (cần là link công khai)!")
+                    except Exception as e:
+                        st.error(f"❌ Lỗi trích xuất: {e}")
 
 st.divider()
 
 # ------------------------------------------
-# 5. HIỂN THỊ THẺ PLAYLIST & CHI TIẾT VIDEO
+# 5. HIỂN THỊ DANH SÁCH PLAYLIST VÀ VIDEO
 # ------------------------------------------
-if not filtered_list:
-    st.info("💡 Chưa có playlist nào được trích xuất.")
+if not st.session_state.yt_playlists:
+    st.info("💡 Chưa có Playlist nào được trích xuất. Hãy dán link ở trên để bắt đầu!")
 else:
-    for idx, item in enumerate(filtered_list):
-        real_idx = st.session_state.yt_playlists.index(item)
-        
+    for idx, item in enumerate(st.session_state.yt_playlists):
         with st.container(border=True):
             # TẦNG 1: THÔNG TIN PLAYLIST
-            hc1, hc2, hc3, hc4, hc5 = st.columns([0.5, 1.2, 3, 1.5, 1.2])
-            with hc1:
-                st.subheader(f"#{idx + 1}")
-            with hc2:
+            c1, c2, c3, c4, c5 = st.columns([0.5, 1.2, 3.5, 1.5, 1])
+            with c1:
+                st.subheader(f"#{idx+1}")
+            with c2:
                 st.caption(f"🏷️ **{item['category']}**")
                 st.caption(f"📅 {item['date']}")
-            with hc3:
+            with c3:
                 st.subheader(f"🎬 {item['title']}")
-                st.caption(f"Số lượng: **{len(item.get('videos', []))} video**")
-            with hc4:
-                if item['url']:
-                    st.link_button("🚀 Mở trên YouTube", item['url'], use_container_width=True)
-            with hc5:
-                if st.button("🗑️ Xóa Playlist", key=f"btn_del_pl_{real_idx}", use_container_width=True):
-                    st.session_state.yt_playlists.remove(item)
+                st.caption(f"Tổng số: **{len(item['videos'])} video**")
+            with c4:
+                st.link_button("🚀 Mở trên YouTube", item['url'], use_container_width=True)
+            with c5:
+                if st.button("🗑️ Xóa", key=f"del_pl_{idx}", use_container_width=True):
+                    st.session_state.yt_playlists.pop(idx)
                     st.rerun()
 
-            # DANH SÁCH VIDEO CHI TIẾT TRONG PLAYLIST
-            with st.expander("📋 **Xem Chi Tiết Danh Sách Video Đã Trích Xuất**", expanded=False):
-                for v in item.get("videos", []):
-                    vc1, vc2 = st.columns([4, 1])
-                    with vc1:
-                        st.write(f"▶️ **{v['stt']}. {v['title']}** - `{v['url']}`")
-                    with vc2:
-                        st.link_button("Xem Video", v['url'], use_container_width=True)
+            # DANH SÁCH VIDEO TRONG PLAYLIST
+            with st.expander(f"📋 **Xem danh sách {len(item['videos'])} Video chi tiết**"):
+                # Chuyển dữ liệu video thành Bảng DataFrame đẹp mắt
+                df_v = pd.DataFrame(item['videos'])
+                df_v.columns = ["STT", "Tên Video", "Đường Dẫn URL", "Thời Lượng", "Kênh YouTube"]
+                st.dataframe(df_v, use_container_width=True, hide_index=True)
 
-            st.markdown("<hr style='margin: 4px 0; border: 0.2px solid #444;'>", unsafe_allow_html=True)
-
-            # TẦNG 2: GHI CHÚ CHO PLAYLIST
+            # TẦNG 2: GHI CHÚ
+            st.markdown("**📝 Ghi chú Playlist:**")
             notes_data = item.get("notes", [])
-            if not notes_data:
-                st.caption("📝 *Chưa có ghi chú nào cho playlist này.*")
-            else:
-                for n_idx, n_item in enumerate(notes_data):
-                    if st.session_state.edit_note_key == (real_idx, n_idx):
-                        with st.container(border=True):
-                            edited_note_text = st.text_area("Hiệu chỉnh ghi chú:", value=n_item['text'], key=f"area_note_{real_idx}_{n_idx}")
-                            sn1, sn2 = st.columns([1, 1])
-                            with sn1:
-                                if st.button("💾 Lưu Ghi chú", type="primary", key=f"save_n_{real_idx}_{n_idx}", use_container_width=True):
-                                    if edited_note_text.strip():
-                                        st.session_state.yt_playlists[real_idx]["notes"][n_idx]["text"] = edited_note_text.strip()
-                                        st.session_state.edit_note_key = None
-                                        st.rerun()
-                            with sn2:
-                                if st.button("❌ Hủy", key=f"cancel_n_{real_idx}_{n_idx}", use_container_width=True):
-                                    st.session_state.edit_note_key = None
-                                    st.rerun()
-                    else:
-                        nc1, nc2, nc3 = st.columns([11, 0.6, 0.6])
-                        with nc1:
-                            st.info(f"📌 **{n_item['text']}**  \n*(⏱️ {n_item['date']})*")
-                        with nc2:
-                            if st.button("✏️", key=f"btn_edit_n_{real_idx}_{n_idx}", help="Sửa ghi chú"):
-                                st.session_state.edit_note_key = (real_idx, n_idx)
-                                st.rerun()
-                        with nc3:
-                            if st.button("🗑️", key=f"btn_del_n_{real_idx}_{n_idx}", help="Xóa ghi chú"):
-                                st.session_state.yt_playlists[real_idx]["notes"].pop(n_idx)
-                                st.rerun()
+            for n_idx, n_item in enumerate(notes_data):
+                nc1, nc2 = st.columns([10, 1])
+                with nc1:
+                    st.info(f"📌 **{n_item['text']}** *(⏱️ {n_item['date']})*")
+                with nc2:
+                    if st.button("🗑️", key=f"del_n_{idx}_{n_idx}"):
+                        item["notes"].pop(n_idx)
+                        st.rerun()
 
-            if st.session_state.add_note_idx == real_idx:
-                with st.container(border=True):
-                    new_add_text = st.text_area("Thêm ghi chú cá nhân mới cho Playlist:", key=f"add_text_{real_idx}")
-                    sa1, sa2 = st.columns([1, 1])
-                    with sa1:
-                        if st.button("💾 Thêm Ghi chú", type="primary", key=f"save_add_{real_idx}", use_container_width=True):
-                            if new_add_text.strip():
-                                now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                                st.session_state.yt_playlists[real_idx]["notes"].append({"text": new_add_text.strip(), "date": now_str})
-                                st.session_state.add_note_idx = None
-                                st.rerun()
-                    with sa2:
-                        if st.button("❌ Hủy", key=f"cancel_add_{real_idx}", use_container_width=True):
-                            st.session_state.add_note_idx = None
-                            st.rerun()
+            if st.session_state.add_note_idx == idx:
+                new_n_text = st.text_area("Nhập ghi chú mới:", key=f"area_add_{idx}")
+                if st.button("💾 Lưu Ghi Chú", type="primary", key=f"save_add_{idx}"):
+                    if new_n_text.strip():
+                        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                        item["notes"].append({"text": new_n_text.strip(), "date": now_str})
+                        st.session_state.add_note_idx = None
+                        st.rerun()
             else:
-                if st.button("➕ Thêm ghi chú mới cho Playlist này", key=f"btn_add_note_{real_idx}"):
-                    st.session_state.add_note_idx = real_idx
+                if st.button("➕ Thêm ghi chú", key=f"btn_add_n_{idx}"):
+                    st.session_state.add_note_idx = idx
                     st.rerun()
 
 # ------------------------------------------
-# 6. TÍNH NĂNG NHẬP / XUẤT FILE LƯU TRỮ
+# 6. XUẤT FILE EXCEL CHUẨN ĐẸP (.XLSX)
 # ------------------------------------------
 st.divider()
-st.subheader("⚙️ Quản lý Dữ liệu Trích Xuất (Nhập / Xuất File)")
+st.subheader("⚙️ Xuất Dữ Liệu Ra File Excel (.xlsx)")
 
-col_io1, col_io2 = st.columns(2)
-
-with col_io1:
-    st.markdown("##### 📤 Chọn File Dữ Liệu Cũ Để Nạp Lại")
-    uploaded_file = st.file_uploader("Tải lên file dữ liệu (.json):", type=["json"])
-    if uploaded_file is not None:
-        try:
-            loaded_data = json.load(uploaded_file)
-            if isinstance(loaded_data, list):
-                if st.button("🔄 Xác nhận nạp dữ liệu này vào ứng dụng", type="primary", use_container_width=True):
-                    st.session_state.yt_playlists = loaded_data
-                    st.success("✅ Đã nạp thành công dữ liệu Playlist!")
-                    st.rerun()
-            else:
-                st.error("⚠️ Cấu trúc file JSON không đúng!")
-        except Exception as e:
-            st.error(f"⚠️ Lỗi đọc file: {e}")
-
-with col_io2:
-    st.markdown("##### 📥 Xuất File Dữ Liệu Ra Máy Tính")
-    if st.session_state.yt_playlists:
-        data_json = json.dumps(st.session_state.yt_playlists, ensure_ascii=False, indent=2)
-        st.download_button(
-            label="📄 Tải về File JSON (Playlist & Video)",
-            data=data_json,
-            file_name="tool_youtube_playlist_backup.json",
-            mime="application/json",
-            use_container_width=True
-        )
+if st.session_state.yt_playlists:
+    export_rows = []
+    for pl in st.session_state.yt_playlists:
+        notes_str = " | ".join([f"[{n['date']}] {n['text']}" for n in pl.get("notes", [])])
+        for v in pl.get("videos", []):
+            export_rows.append({
+                "Danh mục": pl["category"],
+                "Tên Playlist": pl["title"],
+                "STT": v["stt"],
+                "Tên Video": v["title"],
+                "Thời Lượng": v["duration"],
+                "Kênh YouTube": v["uploader"],
+                "Link Video": v["url"],
+                "Ghi chú Playlist": notes_str,
+                "Ngày trích xuất": pl["date"]
+            })
+            
+    df_export = pd.DataFrame(export_rows)
+    
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df_export.to_excel(writer, index=False, sheet_name='YouTube_Playlist')
         
-        export_rows = []
-        for b in st.session_state.yt_playlists:
-            notes_str = " | ".join([f"[{n['date']}] {n['text']}" for n in b.get("notes", [])])
-            for v in b.get("videos", []):
-                export_rows.append({
-                    "Danh mục": b["category"],
-                    "Tên Playlist": b["title"],
-                    "STT Video": v["stt"],
-                    "Tên Video": v["title"],
-                    "Link Video": v["url"],
-                    "Ghi chú Playlist": notes_str,
-                    "Ngày tạo": b["date"]
-                })
-        
-        df_export = pd.DataFrame(export_rows)
-        csv_data = df_export.to_csv(index=False, encoding="utf-8-sig")
-        
-        st.download_button(
-            label="📊 Tải về File Excel / CSV (Danh sách Video chi tiết)",
-            data=csv_data,
-            file_name="tool_youtube_playlist_excel.csv",
-            mime="text/csv",
-            use_container_width=True
-        )
+    st.download_button(
+        label="📊 Tải Về File Excel (.xlsx Chuẩn Không Lỗi Phông)",
+        data=buffer.getvalue(),
+        file_name="danh_sach_playlist_youtube.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        type="primary"
+    )
